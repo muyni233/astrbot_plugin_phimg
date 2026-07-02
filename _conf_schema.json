@@ -1,0 +1,54 @@
+{
+  "apiKey": {
+    "description": "Philomena API 密钥",
+    "type": "string",
+    "default": "",
+    "hint": "在图站个人设置中生成的 API Key，可留空。",
+    "obvious_hint": false
+  },
+  "apiUrl": {
+    "description": "Philomena 图站域名",
+    "type": "string",
+    "default": "derpibooru.org",
+    "hint": "无需 https:// 前缀和路径，例如 derpibooru.org。"
+  },
+  "filterId": {
+    "description": "搜索使用的 Filter ID (例如 100073)",
+    "type": "int",
+    "default": 100073
+  },
+  "defaultTags": {
+    "description": "全局默认标签",
+    "type": "list",
+    "default": ["safe"],
+    "hint": "启用全局标签时会自动追加到每次搜索中。"
+  },
+  "enabledByDefault": {
+    "description": "新群聊默认启用搜图功能",
+    "type": "bool",
+    "default": true
+  },
+  "useGlobalTagsByDefault": {
+    "description": "新群聊默认启用全局标签",
+    "type": "bool",
+    "default": true
+  },
+  "groupOnly": {
+    "description": "是否仅限在群聊中使用",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后私聊也可使用搜图与搜图-c，配置按各自的会话独立保存。"
+  },
+  "proxy": {
+    "description": "网络代理地址",
+    "type": "string",
+    "default": "",
+    "hint": "例如 http://127.0.0.1:7890。留空则不使用代理。",
+    "obvious_hint": false
+  },
+  "timeout": {
+    "description": "请求超时时间（秒）",
+    "type": "float",
+    "default": 30.0
+  }
+}
