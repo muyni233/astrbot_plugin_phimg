@@ -14,7 +14,7 @@ from typing import Any
 import aiohttp
 
 from astrbot.api import AstrBotConfig, logger
-from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
+from astrbot.api.event import AstrMessageEvent, MessageChain, MessageEventResult, filter
 from astrbot.api.message_components import At, Image, Plain, Reply, Video
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
@@ -453,6 +453,55 @@ class PhimgPlugin(Star):
             chain.append(Plain(f"\nid: {img.get('id')} | score: {img.get('score')}\n"))
         return event.chain_result(chain)
 
+    async def _select_image(
+        self,
+        group_config: dict[str, Any],
+        user_tags: list[str],
+        per_page: int = 50,
+        page: int = 1,
+        sf: str = "score",
+        sd: str = "desc",
+        index: int = -1,
+    ) -> tuple[dict[str, Any], str, str]:
+        """合并全局/群聊/用户标签并搜索，返回 (选中的图片, 查询标签串, 附加提示)。
+
+        无标签或无结果时抛出 PhimgError。
+        """
+        global_tags = (
+            list(self.config.get("defaultTags", []))
+            if group_config["useGlobalTags"]
+            else []
+        )
+        group_tags = list(group_config.get("customTags", []))
+        all_tags: list[str] = list(
+            dict.fromkeys([*group_tags, *global_tags, *user_tags])
+        )
+        if not all_tags:
+            raise PhimgError("请输入搜索标签。")
+
+        query_tags = ", ".join(all_tags)
+        data = await self.make_request(
+            "images",
+            {
+                "key": self.config.get("apiKey", ""),
+                "q": query_tags,
+                "per_page": per_page,
+                "page": page,
+                "sf": sf,
+                "sd": sd,
+            },
+        )
+        images = data.get("images", [])
+        if not images:
+            raise PhimgError("未找到匹配的图片")
+
+        additional_msg = ""
+        if index < 0 or index >= len(images):
+            if index >= 0:
+                additional_msg = f"索引 {index} 超出单页范围，已随机选择图片"
+            index = random.randrange(len(images))
+        return images[index], query_tags, additional_msg
+
     async def _handle_tag_search(
         self,
         event: AstrMessageEvent,
@@ -466,45 +515,15 @@ class PhimgPlugin(Star):
             if clean_params
             else []
         )
-        global_tags = (
-            list(self.config.get("defaultTags", []))
-            if group_config["useGlobalTags"]
-            else []
+        selected, query_tags, additional_msg = await self._select_image(
+            group_config,
+            user_tags,
+            per_page=_to_int(opts.get("--pp"), 50),
+            page=_to_int(opts.get("--p"), 1),
+            sf=opts.get("--sf", "score"),
+            sd=opts.get("--sd", "desc"),
+            index=_to_int(opts.get("--i"), -1),
         )
-        group_tags = list(group_config.get("customTags", []))
-        all_tags: list[str] = list(
-            dict.fromkeys([*group_tags, *global_tags, *user_tags])
-        )
-
-        if not all_tags:
-            return event.plain_result("请输入搜索标签。")
-
-        per_page = _to_int(opts.get("--pp"), 50)
-        page = _to_int(opts.get("--p"), 1)
-        query_tags = ", ".join(all_tags)
-        data = await self.make_request(
-            "images",
-            {
-                "key": self.config.get("apiKey", ""),
-                "q": query_tags,
-                "per_page": per_page,
-                "page": page,
-                "sf": opts.get("--sf", "score"),
-                "sd": opts.get("--sd", "desc"),
-            },
-        )
-        images = data.get("images", [])
-        if not images:
-            return event.plain_result("未找到匹配的图片")
-
-        index = _to_int(opts.get("--i"), -1)
-        additional_msg = ""
-        if index < 0 or index >= len(images):
-            if index >= 0:
-                additional_msg = f"索引 {index} 超出单页范围，已随机选择图片"
-            index = random.randrange(len(images))
-
-        selected = images[index]
         chain: list[Any] = [
             At(qq=event.get_sender_id()),
             self.build_media(selected),
@@ -514,6 +533,45 @@ class PhimgPlugin(Star):
         if additional_msg:
             chain.append(Plain(f"\n提示：{additional_msg}"))
         return event.chain_result(chain)
+
+    @filter.llm_tool(name="phimg_search")
+    async def phimg_search(self, event: AstrMessageEvent, tags: str) -> str:
+        """Search and send an image from a Philomena-based imageboard (e.g. Derpibooru) by tags.
+
+        Call this when the user wants to see a picture of a character or subject. Tags
+        MUST be in English. Both full names and common abbreviations / short forms are
+        accepted — for example, "twilight sparkle" and "ts" are equivalent. Separate
+        multiple tags with commas (e.g. "ts, rainbow dash"). The matched image is sent
+        to the user automatically; after calling, reply briefly in natural language.
+
+        Args:
+            tags(string): Search tags in English. Full name or abbreviation, e.g. "twilight sparkle" or "ts". Comma-separated.
+        """
+        scope = self._resolve_scope(event)
+        if scope is None:
+            return "搜索仅限群聊使用。"
+        group_config = await self.get_group_config(scope)
+        if not group_config["enabled"]:
+            return "搜图功能当前未开启。"
+
+        user_tags = [t.strip() for t in str(tags).split(",") if t.strip()]
+        try:
+            selected, query_tags, _ = await self._select_image(group_config, user_tags)
+        except PhimgError as e:
+            return str(e)
+
+        await event.send(
+            MessageChain(
+                chain=[
+                    self.build_media(selected),
+                    Plain(f"\nid: {selected.get('id')} | tags: {query_tags}"),
+                ]
+            )
+        )
+        return (
+            f"已发送 1 张搜索结果（tags: {query_tags}）。"
+            "请用一句自然语言简短告知用户，不要重复图片地址。"
+        )
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("搜图-c", alias={"phimg-c"})
