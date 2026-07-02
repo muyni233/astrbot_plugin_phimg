@@ -1,8 +1,7 @@
 # phimg
 
 <p align="center">
-  <img src="https://derpicdn.net/img/download/2012/7/7/36211__safe_artist-colon-charleston-
-  dash-and-dash-itchy_philomena_phoenix_g4_arizona_pet_phoenix+arizona.png" width="128" alt="Philomena" />
+  <img src="https://derpicdn.net/img/download/2012/7/7/36211__safe_artist-colon-charleston-dash-and-dash-itchy_philomena_phoenix_g4_arizona_pet_phoenix+arizona.png" width="128" alt="Philomena" />
 </p>
 
 让机器人通过 [Philomena API](https://github.com/philomena-dev/philomena) 在使用 Philomena 搭建的图站（例如 [Derpibooru](https://derpibooru.org)）上使用标签（tags）搜图。
